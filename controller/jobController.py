@@ -1,0 +1,137 @@
+"""
+@Author：dr34m
+@Date  ：2024/7/10 12:10 
+"""
+from concurrent.futures import ThreadPoolExecutor
+
+from tornado.concurrent import run_on_executor
+
+from controller.baseController import BaseHandler, handle_request
+from service.alist import alistService
+from service.storage import storageService
+from service.storage import discoveryService
+from service.syncJob import jobService, taskService
+
+
+class Alist(BaseHandler):
+    executor = ThreadPoolExecutor(1)
+
+    @run_on_executor
+    @handle_request
+    def get(self, req):
+        if 'alistId' in req and 'path' in req:
+            return alistService.getChildPath(int(req['alistId']), req['path'])
+        return alistService.getClientList()
+
+    @run_on_executor
+    @handle_request
+    def post(self, req):
+        alistService.addClient(req)
+
+    @run_on_executor
+    @handle_request
+    def put(self, req):
+        alistService.updateClient(req)
+
+    @run_on_executor
+    @handle_request
+    def delete(self, req):
+        alistService.removeClient(req['id'])
+
+
+class Storage(BaseHandler):
+    executor = ThreadPoolExecutor(4)
+
+    @run_on_executor
+    @handle_request
+    def get(self, req):
+        action = req.get('action')
+        if action == 'localBrowse':
+            return discoveryService.localBrowse(req.get('path'))
+        if action == 'smbDiscover':
+            return discoveryService.smbDiscover()
+        if action is not None:
+            raise ValueError('unknown storage action')
+        if 'types' in req:
+            return storageService.getSupportedDrivers()
+        return storageService.getMountList(req['engineId'])
+
+    @run_on_executor
+    @handle_request
+    def post(self, req):
+        action = req.get('action')
+        if action == 'sftpTest':
+            return storageService.testSftp(req)
+        if action == 'sftpBrowse':
+            return storageService.browseSftp(req)
+        if action == 'smbShares':
+            return storageService.discoverSmbShares(req)
+        if action is not None:
+            raise ValueError('unknown storage action')
+        return storageService.addMount(req)
+
+    @run_on_executor
+    @handle_request
+    def put(self, req):
+        storageService.updateMount(req)
+
+    @run_on_executor
+    @handle_request
+    def delete(self, req):
+        storageService.removeMount(req['id'])
+
+
+class Job(BaseHandler):
+    executor = ThreadPoolExecutor(4)
+
+    @run_on_executor
+    @handle_request
+    def get(self, req):
+        if 'id' in req:
+            if 'current' in req:
+                return jobService.getJobCurrent(req['id'], req.get('status', None))
+            return taskService.getTaskList(req)
+        elif 'taskId' in req:
+            return taskService.getTaskItemList(req)
+        return jobService.getJobList(req)
+
+    @run_on_executor
+    @handle_request
+    def post(self, req):
+        if 'id' in req:
+            jobService.editJobClient(req)
+        else:
+            jobService.addJobClient(req)
+
+    @run_on_executor
+    @handle_request
+    def put(self, req):
+        if req['pause'] is None:
+            if 'id' in req:
+                # 手动执行作业
+                jobService.doJobManual(req['id'])
+            else:
+                # 手动执行所有作业
+                jobService.doAllJobManual()
+        elif req['pause'] is True:
+            # 禁用作业
+            if 'abort' in req:
+                jobService.abortJob(req['id'])
+            elif 'id' in req:
+                jobService.pauseJob(req['id'])
+            else:
+                jobService.pauseAllJob()
+        else:
+            # 启用作业
+            if 'id' in req:
+                jobService.continueJob(req['id'])
+            else:
+                jobService.continueAllJob()
+
+    @run_on_executor
+    @handle_request
+    def delete(self, req):
+        if 'id' in req:
+            jobService.removeJobClient(req['id'])
+        elif 'taskId' in req:
+            taskService.removeTask(req['taskId'])

@@ -1,0 +1,11 @@
+wheels/
+.venv/
+venv/
+.git/
+web/node_modules/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+deploy/synology/*.tar
+agent-transcripts/
+.cursor/

@@ -1,0 +1,12 @@
+services:
+  tao-sync:
+    image: taosync-csenc:local
+    container_name: taoSync
+    restart: unless-stopped
+    network_mode: "bridge"
+    ports:
+      - "8023:8023"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/app/data

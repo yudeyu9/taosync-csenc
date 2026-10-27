@@ -1,0 +1,380 @@
+"""
+@Author：dr34m
+@Date  ：2024/7/9 17:17 
+"""
+import json
+import logging
+
+from common.LNG import G
+from mapper import jobMapper
+from service.crypto import csenc
+from service.storage import storageService
+from service.syncJob import jobClient
+
+# 作业客户端列表，key为jobId,value为jobClient
+jobClientList = {}
+
+MAX_SQLITE_INTEGER = 9223372036854775807
+SOURCE_SNAPSHOT_FIELDS = jobMapper.SOURCE_SNAPSHOT_FIELDS
+
+
+def normalizeFileSize(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise Exception(G('file_size_invalid'))
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, float) and value.is_integer():
+        result = int(value)
+    elif isinstance(value, str) and value.isdigit():
+        result = int(value)
+    else:
+        raise Exception(G('file_size_invalid'))
+    if result < 0 or result > MAX_SQLITE_INTEGER:
+        raise Exception(G('file_size_invalid'))
+    return result
+
+
+def normalizeSourceMode(value):
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int) and value in (0, 1):
+        return value
+    if isinstance(value, str) and value in ('0', '1'):
+        return int(value)
+    raise Exception(G('source_mode_invalid'))
+
+
+def normalizeEncryptMode(value):
+    """规范化加密模式：0=关闭，1=上传加密（群晖 Cloud Sync 兼容）。"""
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int) and value in (0, 1):
+        return value
+    if isinstance(value, str) and value in ('0', '1'):
+        return int(value)
+    raise Exception(G('encrypt_mode_invalid'))
+
+
+def normalizeCopyConcurrent(value):
+    """规范化同时处理文件数：默认 2，允许 1~20（含端点）。"""
+    if value is None or value == '':
+        return 2
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        raise Exception(G('copy_concurrent_invalid'))
+    if num < 1 or num > 20:
+        raise Exception(G('copy_concurrent_invalid'))
+    return num
+
+
+def initJob():
+    """
+    用于启动后寻找任务，修改异常终止状态，启动启用的任务
+    :return:
+    """
+    logger = logging.getLogger()
+    jobMapper.updateJobTaskStatusByStatus()
+    jobList = jobMapper.getJobList()
+    for item in jobList:
+        try:
+            logger.info(f"正在添加jobId为{item['id']}的任务")
+            addJobClient(item, True)
+        except Exception as e:
+            logger.error(f"添加任务过程中报错")
+            logger.exception(e)
+
+
+def getJobClientById(jobId):
+    """
+    获取作业客户端
+    :param jobId:
+    :return:
+    """
+    jobId = int(jobId)
+    global jobClientList
+    if jobId in jobClientList:
+        return jobClientList[jobId]
+    job = jobMapper.getJobById(jobId)
+    client = jobClient.JobClient(job)
+    jobClientList[jobId] = client
+    return client
+
+
+def cleanJobInput(job):
+    """
+    清洗输入的数据
+    :param job: job对象
+    :return:
+    """
+    if job['isCron'] == 2 and job['enable'] != 1:
+        job['enable'] = 1
+    for key, value in job.items():
+        if type(value) == str:
+            if value.strip() == '':
+                job[key] = None
+            else:
+                job[key] = value.strip()
+    if job['exclude'] is not None:
+        job['exclude'] = ":".join([item.strip() for item in job['exclude'].split(':')])
+    job.setdefault('minFileSize', None)
+    job.setdefault('maxFileSize', None)
+    job.setdefault('sourceMode', 0)
+    job.setdefault('encryptMode', 0)
+    job.setdefault('encryptPassword', None)
+    job.setdefault('encryptPublicKey', None)
+    job.setdefault('encryptPrivateKey', None)
+    job.setdefault('copyConcurrent', 2)
+    job['minFileSize'] = normalizeFileSize(job['minFileSize'])
+    job['maxFileSize'] = normalizeFileSize(job['maxFileSize'])
+    job['sourceMode'] = normalizeSourceMode(job['sourceMode'])
+    job['encryptMode'] = normalizeEncryptMode(job.get('encryptMode'))
+    job['copyConcurrent'] = normalizeCopyConcurrent(job.get('copyConcurrent'))
+    if job['encryptMode'] == 1:
+        if not job.get('encryptPassword'):
+            raise Exception(G('encrypt_password_required'))
+        # 密文大小与明文不同，无法靠目标 size 比对；强制源目录模式。
+        # 内置引擎与外部 OpenList 均可：OpenList 走本机下载→加密→上传。
+        job['sourceMode'] = 1
+        # 编辑时前端可能不回传 PEM：尽量沿用库里已有密钥，否则新生成一对。
+        if (not job.get('encryptPublicKey') or not job.get('encryptPrivateKey')) and job.get('id'):
+            try:
+                old = jobMapper.getJobById(int(job['id']))
+            except Exception:
+                old = None
+            if old and old.get('encryptPublicKey') and old.get('encryptPrivateKey'):
+                job['encryptPublicKey'] = old['encryptPublicKey']
+                job['encryptPrivateKey'] = old['encryptPrivateKey']
+        if not job.get('encryptPublicKey') or not job.get('encryptPrivateKey'):
+            public_pem, private_pem = csenc.generate_rsa_keypair()
+            job['encryptPublicKey'] = public_pem
+            job['encryptPrivateKey'] = private_pem
+    else:
+        job['encryptPassword'] = None
+        job['encryptPublicKey'] = None
+        job['encryptPrivateKey'] = None
+    if job.get('srcPath') and job.get('dstPath'):
+        for dstPath in job['dstPath'].split(':'):
+            engineId = job.get('alistId')
+            pathsOverlap = (
+                jobClient.virtualPathsOverlap(job['srcPath'], dstPath)
+                if engineId is None
+                else storageService.enginePathsOverlap(engineId, job['srcPath'], dstPath)
+            )
+            if pathsOverlap:
+                raise Exception(G('source_target_overlap'))
+    if (job['minFileSize'] is not None
+            and job['maxFileSize'] is not None
+            and job['minFileSize'] > job['maxFileSize']):
+        raise Exception(G('file_size_range_invalid'))
+
+
+def addJobClient(job, isInit=False):
+    """
+    新增作业客户端
+    :param isInit: 是否是初始化过程
+    :param job: {
+        enable: 1,
+        srcPath: '',
+        dstPath: '',
+        alistId: null,
+        speed: 0,
+        method: 0,
+        interval: 60
+    }
+    :return:
+    """
+    cleanJobInput(job)
+    client = jobClient.JobClient(job, isInit)
+    global jobClientList
+    jobClientList[int(client.jobId)] = client
+
+
+def editJobClient(job):
+    """
+    编辑作业客户端
+    :param job: {
+        id: 1,
+        enable: 1,
+        srcPath: '',
+        dstPath: '',
+        alistId: null,
+        speed: 0,
+        method: 0,
+        interval: 60
+    }
+    """
+    jobId = int(job['id'])
+    cleanJobInput(job)
+    client = getJobClientById(jobId)
+    if client.job['enable'] == 1 and client.job['isCron'] != 2:
+        raise Exception(G('disable_then_edit'))
+    clearSnapshot = any(client.job.get(key) != job.get(key) for key in SOURCE_SNAPSHOT_FIELDS)
+    oldJob = client.job.copy()
+    client.stopJob(remove=True)
+    global jobClientList
+    newClient = None
+    try:
+        newClient = jobClient.JobClient(job)
+        jobMapper.updateJob(job, clearSourceSnapshot=clearSnapshot)
+    except Exception:
+        if newClient is not None:
+            newClient.stopJob(remove=True)
+        try:
+            jobClientList[jobId] = jobClient.JobClient(oldJob)
+        except Exception as restoreError:
+            logging.getLogger().exception(restoreError)
+        raise
+    jobClientList[jobId] = newClient
+
+
+def doAllJobManual():
+    """
+    手动执行所有未禁用的作业
+    :return:
+    """
+    jobList = jobMapper.getEnableJobList()
+    if not jobList:
+        raise Exception(G('no_job_for_run'))
+    for jobItem in jobList:
+        client = getJobClientById(jobItem['id'])
+        if client.job['enable'] == 1:
+            client.doManual()
+
+
+def pauseAllJob():
+    """Disable every scheduled job; manual-only jobs cannot be disabled."""
+    for job in jobMapper.getJobList():
+        if job.get('isCron') == 2 or job.get('enable') != 1:
+            continue
+        pauseJob(job['id'])
+
+
+def continueAllJob():
+    """Enable every scheduled job that is currently disabled."""
+    for job in jobMapper.getJobList():
+        if job.get('isCron') == 2 or job.get('enable') == 1:
+            continue
+        continueJob(job['id'])
+
+
+def doJobManual(jobId):
+    """
+    手动执行作业
+    :param jobId:
+    :return:
+    """
+    client = getJobClientById(jobId)
+    if client.job['enable'] != 1:
+        raise Exception(G('disabled_job_cannot_run'))
+    client.doManual()
+
+
+def removeJobClient(jobId):
+    """
+    删除作业
+    :param jobId:
+    :return:
+    """
+    jobId = int(jobId)
+    client = getJobClientById(jobId)
+    client.stopJob(remove=True)
+    jobMapper.deleteJob(jobId)
+    global jobClientList
+    del jobClientList[jobId]
+
+
+def continueJob(jobId):
+    """
+    启用作业
+    :param jobId:
+    """
+    client = getJobClientById(jobId)
+    client.resumeJob()
+
+
+def pauseJob(jobId):
+    """
+    禁用作业
+    :param jobId:
+    """
+    client = getJobClientById(jobId)
+    if client.job['isCron'] == 2:
+        raise Exception(G('cannot_disable_manual_job'))
+    client.stopJob()
+
+
+def abortJob(jobId):
+    """
+    中止作业
+    :param jobId:
+    :return:
+    """
+    client = getJobClientById(jobId)
+    client.abortJob()
+
+
+def getJobList(req):
+    """
+    作业列表
+    :param req: {
+        'pageSize': 1,
+        'pageNum': 2
+    }
+    :return:
+    """
+    result = jobMapper.getJobList(req)
+    rows = result.get('dataList', result) if isinstance(result, dict) else result
+    latestTasks = {
+        task['jobId']: task for task in jobMapper.getLatestJobTaskList(
+            [row['id'] for row in rows]
+        )
+    }
+    for row in rows:
+        task = latestTasks.get(row['id'])
+        if task is None:
+            row['lastTask'] = None
+            continue
+        taskNum = {}
+        if task.get('taskNum'):
+            try:
+                parsed = json.loads(task['taskNum'])
+                if isinstance(parsed, dict):
+                    taskNum = parsed
+            except (TypeError, ValueError):
+                pass
+        task['allNum'] = taskNum.get('allNum', task.get('itemAllNum') or 0)
+        task['successNum'] = taskNum.get('successNum', task.get('itemSuccessNum') or 0)
+        task['failNum'] = taskNum.get('failNum', task.get('itemFailNum') or 0)
+        task['otherNum'] = taskNum.get('otherNum', task.get('itemOtherNum') or 0)
+        task['duration'] = taskNum.get('duration')
+        task.pop('taskNum', None)
+        task.pop('itemAllNum', None)
+        task.pop('itemSuccessNum', None)
+        task.pop('itemFailNum', None)
+        task.pop('itemOtherNum', None)
+        row['lastTask'] = task
+    return result
+
+
+def getJobCurrent(jobId, status=None):
+    """
+    获取当前作业正在执行中的任务的详情
+    :param jobId:
+    :param status: 状态
+    :return:
+    """
+    client = getJobClientById(int(jobId))
+    taskClient = client.currentJobTask
+    if taskClient is not None:
+        if status is None:
+            return taskClient.getCurrent()
+        else:
+            return taskClient.getCurrentByStatus(int(status))
+    return None

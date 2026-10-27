@@ -1,0 +1,17 @@
+taosync-csenc
+=============
+
+This software is a modified version of TaoSync
+  https://github.com/dr34m-cn/taosync
+
+Original project author: dr34m (dr34m-cn)
+License: GNU Affero General Public License v3.0 (see LICENSE)
+
+Modifications (maintainer: yudeyu9), including but not limited to:
+  - Synology / NAS oriented Docker packaging under deploy/synology/
+  - Synology Cloud Sync compatible encryption (service/crypto/csenc.py)
+  - Documentation and branding adjustments for this fork
+
+The name "TaoSync" and related marks belong to the upstream project.
+This fork is distributed under the name taosync-csenc to reduce confusion
+with the official releases and Docker image (dr34m/tao-sync).
