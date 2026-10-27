@@ -77,7 +77,7 @@ Outline:
 
 ```sh
 # From the repo root (requires web/dist)
-docker build -f deploy/synology/Dockerfile -t taosync-csenc:local .
+docker build -t taosync-csenc:local .
 ```
 
 Compose sample: `deploy/synology/docker-compose.yml`.
@@ -89,7 +89,7 @@ Compose sample: `deploy/synology/docker-compose.yml`.
 ## Quick start (Docker)
 
 ```sh
-docker build -f deploy/synology/Dockerfile -t taosync-csenc:local .
+docker build -t taosync-csenc:local .
 docker run -d --restart=unless-stopped -p 8023:8023 \
   -v /opt/taosync-data:/app/data \
   --name taoSync taosync-csenc:local

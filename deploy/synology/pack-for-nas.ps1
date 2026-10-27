@@ -21,7 +21,7 @@ $Include = @(
     "service",
     "locales",
     "web\dist",
-    "deploy\synology\Dockerfile",
+    "Dockerfile",
     "deploy\synology\docker-compose.yml",
     "deploy\synology\build-on-nas.sh",
     "deploy\synology\README.md"

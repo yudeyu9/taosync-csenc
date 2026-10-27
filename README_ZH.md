@@ -77,7 +77,7 @@
 
 ```sh
 # 在仓库根目录（需已有 web/dist）
-docker build -f deploy/synology/Dockerfile -t taosync-csenc:local .
+docker build -t taosync-csenc:local .
 ```
 
 Compose 示例见 `deploy/synology/docker-compose.yml`。
@@ -89,7 +89,7 @@ Compose 示例见 `deploy/synology/docker-compose.yml`。
 ## 本机快速运行（Docker）
 
 ```sh
-docker build -f deploy/synology/Dockerfile -t taosync-csenc:local .
+docker build -t taosync-csenc:local .
 docker run -d --restart=unless-stopped -p 8023:8023 \
   -v /opt/taosync-data:/app/data \
   --name taoSync taosync-csenc:local

@@ -42,7 +42,8 @@ echo "==> 拉取基础镜像 python:3.11-slim-bullseye"
 docker pull python:3.11-slim-bullseye || true
 
 echo "==> 构建镜像 taosync-csenc:local"
-docker build -f deploy/synology/Dockerfile -t taosync-csenc:local "$APP_ROOT"
+# 使用仓库根目录 Dockerfile（已从 deploy/synology 迁出）
+docker build -f Dockerfile -t taosync-csenc:local "$APP_ROOT"
 
 echo "==> 重建容器（保留 $DATA_DIR）"
 cd "$HOST_ROOT"

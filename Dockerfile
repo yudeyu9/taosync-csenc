@@ -1,7 +1,6 @@
-# taosync-csenc 公开构建用（不依赖上游 dr34m/* 基础镜像）
+# taosync-csenc 唯一 Dockerfile（群晖 / 本机共用，不依赖上游 dr34m/*）
 # 构建前请先：npm run build --prefix web
 #   docker build -t taosync-csenc:local .
-# 与 deploy/synology/Dockerfile 保持一致
 
 FROM python:3.11-slim-bullseye AS builder
 WORKDIR /app

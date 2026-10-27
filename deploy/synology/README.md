@@ -20,7 +20,7 @@
     service/
     locales/
     web/dist/            # 电脑上先 npm run build
-    deploy/synology/Dockerfile
+    Dockerfile           # 仓库根目录 Dockerfile
     deploy/synology/build-on-nas.sh
 ```
 
@@ -65,7 +65,7 @@ sh deploy/synology/build-on-nas.sh
 - `main.py`、`requirements.txt`、`taoSync.spec`
 - `common/`、`controller/`、`mapper/`、`service/`、`locales/`
 - `web/dist/`
-- `deploy/synology/Dockerfile`（及可选 `build-on-nas.sh`）
+- 根目录 `Dockerfile`（及可选 `deploy/synology/build-on-nas.sh`）
 
 不要打包：`.venv`、`web/node_modules`、`data/`
 
