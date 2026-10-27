@@ -121,7 +121,16 @@ docker run -d --restart=unless-stopped -p 8023:8023 \
 
 - 本仓库：https://github.com/yudeyu9/taosync-csenc
 - 上游：https://github.com/dr34m-cn/taosync
-- Docker Hub：若后续发布公共镜像，将在此 README 补充镜像名，并与本仓库源码对应
+- Docker Hub：https://hub.docker.com/r/yudy95/taosync-csenc（镜像 `yudy95/taosync-csenc:latest`，与本仓库源码对应）
+
+拉取并运行示例：
+
+```sh
+docker pull yudy95/taosync-csenc:latest
+docker run -d --restart=unless-stopped -p 8023:8023 \
+  -v /opt/taosync-data:/app/data \
+  --name taoSync yudy95/taosync-csenc:latest
+```
 
 ## 免责声明
 

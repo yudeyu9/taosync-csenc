@@ -121,7 +121,16 @@ For the full feature set, see the upstream README. This fork emphasizes Synology
 
 - This repo: https://github.com/yudeyu9/taosync-csenc
 - Upstream: https://github.com/dr34m-cn/taosync
-- Docker Hub: if a public image is published later, the image name will be listed here and tied to this source tree
+- Docker Hub: https://hub.docker.com/r/yudy95/taosync-csenc (`yudy95/taosync-csenc:latest`, matches this source tree)
+
+Pull and run:
+
+```sh
+docker pull yudy95/taosync-csenc:latest
+docker run -d --restart=unless-stopped -p 8023:8023 \
+  -v /opt/taosync-data:/app/data \
+  --name taoSync yudy95/taosync-csenc:latest
+```
 
 ## Disclaimer
 
